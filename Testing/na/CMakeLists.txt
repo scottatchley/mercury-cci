@@ -24,6 +24,7 @@ build_na_test(server_na)
 
 # Dynamic client / server test with all enabled NA plugins
 add_mercury_test(na server_na client_na)
+
 #if(NA_USE_SSM)
 #  add_mercury_test(simple_na server_simple_na client_simple_na)
 #endif()

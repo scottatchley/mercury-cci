@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.5 FATAL_ERROR)
-project(NA C)
+project(NA C CXX)
 
 #------------------------------------------------------------------------------
 # Setup install directories and cmake module
@@ -42,12 +42,14 @@ include_directories(${NA_SOURCE_DIR}/../util)
 # for NA plugin libraries/dependencies.
 # (Refer Mercury-Trac #15)
 #------------------------------------------------------------------------------
+include_directories(${BMI_INCLUDE_DIR})
 include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_BINARY_DIR}
 )
 
 # BMI
+
 option(NA_USE_BMI "Use BMI." OFF)
 if(NA_USE_BMI)
   find_package(BMI REQUIRED)
@@ -55,7 +57,6 @@ if(NA_USE_BMI)
     message(STATUS "BMI include directory: ${BMI_INCLUDE_DIR}")
     set(NA_PLUGINS ${NA_PLUGINS} bmi)
     set(NA_HAS_BMI 1)
-    include_directories(${BMI_INCLUDE_DIR})
     set(NA_EXT_LIB_DEPENDENCIES
       ${NA_EXT_LIB_DEPENDENCIES}
       ${BMI_LIBRARIES}
@@ -72,6 +73,29 @@ if(NA_USE_BMI)
      " HAVE_BMI_ZOID_TIMEOUT)
   else()
     message(FATAL_ERROR "Could not find BMI.")
+  endif()
+endif()
+
+option(NA_USE_VERBS "Use VERBS." OFF)
+if(NA_USE_VERBS)
+  include_directories(
+    ${BGC_INCLUDE_DIR}
+  )
+  
+  if(OFED_FOUND)
+    set(NA_PLUGINS ${NA_PLUGINS} verbs)
+    set(NA_HAS_VERBS 1)
+    set(NA_EXT_LIB_DEPENDENCIES
+      ${NA_EXT_LIB_DEPENDENCIES}
+      ${_ibverbs_LIBRARY}
+      ${_rdma_LIBRARY}
+    )
+    set(NA_EXT_INCLUDE_DEPENDENCIES
+      ${NA_EXT_INCLUDE_DEPENDENCIES}
+      ${BGC_INCLUDE_DIR}
+    )
+  else()
+    message("Fatal : Could not find RDMA.")
   endif()
 endif()
 
@@ -189,6 +213,13 @@ if(NA_USE_MPI)
   )
 endif()
 
+if(NA_USE_VERBS)
+  set(NA_SRCS
+    ${NA_SRCS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/na_verbs.cc
+  )
+endif()
+
 #----------------------------------------------------------------------------
 # Libraries
 #----------------------------------------------------------------------------
@@ -200,6 +231,12 @@ if(MERCURY_ENABLE_COVERAGE)
   set_coverage_flags(na)
 endif()
 
+if(NA_USE_VERBS)
+  target_link_libraries(na
+    rdma_lib
+    ${Boost_REGEX_LIBRARY_DEBUG}
+  )
+endif()
 #---------------------------------------------------------------------------
 # Add Target(s) to CMake Install
 #---------------------------------------------------------------------------

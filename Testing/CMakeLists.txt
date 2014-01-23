@@ -23,6 +23,9 @@ else()
   set(MERCURY_HAS_PARALLEL_TESTING 0)
 endif()
 
+set(MERCURY_TESTING_SCRATCH_DIRECTORY "/scratch/hdf5" CACHE PATH 
+  "Location to use for temp data.")
+
 #------------------------------------------------------------------------------
 # Compile kwsys library and setup TestDriver
 #------------------------------------------------------------------------------

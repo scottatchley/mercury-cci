@@ -11,10 +11,15 @@
 #include "mercury_test.h"
 #ifdef NA_HAS_BMI
 #include "na_bmi.h"
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #endif
 #ifdef NA_HAS_MPI
 #include "na_mpi.h"
+#endif
+#ifdef NA_HAS_VERBS
+#include "na_verbs.h"
 #endif
 #ifdef NA_HAS_SSM
 #include "na_ssm.h"
@@ -26,6 +31,22 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+
+#ifdef _WIN32
+#include <Winsock2.h>
+  int WIN32gethostname(char *hostname, int len)
+  {
+    WORD wVersionRequested;
+    WSADATA wsaData;
+    wVersionRequested = MAKEWORD( 2, 0 );
+    if ( WSAStartup( wVersionRequested, &wsaData ) == 0 )
+    {
+      gethostname (hostname, len);
+      WSACleanup( );
+    }
+  }
+  #define gethostname WIN32gethostname
+#endif
 
 #define HG_TEST_MAX_ADDR_NAME 256
 
@@ -111,7 +132,7 @@ HG_Test_set_config(const char *addr_name)
 
     /* Only rank 0 writes file */
     if (my_rank == 0) {
-        config = fopen("port.cfg", "w+");
+        config = fopen(MERCURY_TESTING_SCRATCH_DIRECTORY "/port.cfg", "w+");
         if (config != NULL) {
             for (i = 0; i < my_size; i++) {
                 fprintf(config, "%s\n", na_addr_table[i]);
@@ -135,9 +156,14 @@ HG_Test_get_config(char *addr_name, size_t len, int *rank)
 
     /* Only rank 0 reads file */
     if (my_rank == 0) {
-        config = fopen("port.cfg", "r");
+        config = fopen(MERCURY_TESTING_SCRATCH_DIRECTORY "/port.cfg", "r");
         if (config != NULL) {
             fgets(config_addr_name, HG_TEST_MAX_ADDR_NAME, config);
+            printf("Config read successfully : %s\n", config_addr_name); fflush(NULL);
+        }
+        else {
+        	perror("port.cfg");
+        	exit(0);
         }
         fclose(config);
     }
@@ -163,9 +189,33 @@ HG_Test_client_init(int argc, char *argv[], char **addr_name, int *rank)
     na_class_t *network_class = NULL;
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <bmi|mpi|ssm>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <bmi|mpi|ssm|verbs>\n", argv[0]);
         exit(0);
     }
+
+#ifdef NA_HAS_VERBS
+    if (strcmp("verbs", argv[1]) == 0) {
+            /* Although we could run some tests without MPI, need it for test setup */
+            char hostname[HG_TEST_MAX_ADDR_NAME];
+            char addr_name[HG_TEST_MAX_ADDR_NAME];
+            int my_rank = 0;
+            unsigned int port_number = 16384; // this should be overridden
+
+    #ifdef MERCURY_HAS_PARALLEL_TESTING
+            /* Test run in parallel using mpirun so must intialize MPI to get
+             * basic setup info etc */
+            HG_Test_mpi_init();
+            MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+    #endif
+
+            HG_Test_get_config(test_addr_name, HG_TEST_MAX_ADDR_NAME, &test_rank);
+
+            /* Generate a port number depending on server rank */
+            port_number += my_rank;
+
+            network_class = NA_Initialize(test_addr_name, 0);
+        }
+#endif
 
 #ifdef NA_HAS_MPI
     if (strcmp("mpi", argv[1]) == 0) {
@@ -229,9 +279,54 @@ HG_Test_server_init(int argc, char *argv[], char ***addr_table,
     na_class_t *network_class = NULL;
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <bmi|mpi|ssm>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <bmi|mpi|ssm|verbs>\n", argv[0]);
         exit(0);
     }
+
+#ifdef NA_HAS_VERBS
+    if (strcmp("verbs", argv[1]) == 0) {
+            if (argc < 5) {
+                fprintf(stderr, "Usage: %s <verbs device interface port>\n", argv[0]);
+                exit(0);
+            }
+            /* Although we could run some tests without MPI, need it for test setup */
+            char  hostname[HG_TEST_MAX_ADDR_NAME];
+            char  addr_name[HG_TEST_MAX_ADDR_NAME];
+            char *device = argv[2]; // can be something like bgvrnic_0, mlx4_0
+            char *iface  = argv[3]; // can be something like tor0, roq0, nvp0, ib0
+            int   my_rank = 0;
+            unsigned int port_number = atoi(argv[4]);
+
+    #ifdef MERCURY_HAS_PARALLEL_TESTING
+            /* Test run in parallel using mpirun so must intialize MPI to get
+             * basic setup info etc */
+            HG_Test_mpi_init();
+            MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+    #endif
+
+            /* Generate a port number depending on server rank */
+            // port_number += my_rank;
+
+            /* Strings can be of the format:
+             *   tcp://localhost:3344
+             *   tcp@ssm://localhost:3344
+             */
+            gethostname(hostname, HG_TEST_MAX_ADDR_NAME);
+            NA_VERBS_Get_rdma_device_address(device, iface, hostname, port_number);
+            printf("generated rdma@%s/%s://%s:%d\n", device, iface, hostname, port_number); fflush(NULL);
+            sprintf(addr_name, "rdma@%s/%s://%s:%d\n", device, iface, hostname, port_number);
+
+            /* Gather addresses */
+
+            HG_Test_set_config(addr_name);
+
+    #ifdef MERCURY_HAS_PARALLEL_TESTING
+            HG_Test_mpi_finalize();
+    #endif
+
+            network_class = NA_Initialize(addr_name, NA_TRUE);
+        }
+#endif
 
 #ifdef NA_HAS_MPI
     if (strcmp("mpi", argv[1]) == 0) {

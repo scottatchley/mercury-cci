@@ -6,6 +6,7 @@ include_directories(
   ${CMAKE_CURRENT_BINARY_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/proc_extra
 )
+include_directories(${BMI_INCLUDE_DIR})
 
 #------------------------------------------------------------------------------
 # Internal dependencies
@@ -44,7 +45,7 @@ set(MERCURY_EXT_LIB_DEPENDENCIES ${NA_EXT_LIB_DEPENDENCIES}
 # Boost (for preprocessor macros)
 option(MERCURY_USE_BOOST_PP "Use BOOST preprocessor macros." OFF)
 if(MERCURY_USE_BOOST_PP)
-  find_package(Boost 1.48.0 REQUIRED)
+  find_package(Boost 1.48.0 REQUIRED REQUIRED regex)
   if(Boost_FOUND)
     message(STATUS "Boost include directory: ${Boost_INCLUDE_DIRS}")
     set(HG_HAS_BOOST 1)

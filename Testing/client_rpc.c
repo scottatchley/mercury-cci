@@ -18,6 +18,7 @@
 /******************************************************************************/
 int main(int argc, char *argv[])
 {
+    printf("About to start main ");
     char *ion_name;
     na_addr_t addr;
     na_class_t *network_class = NULL;
@@ -27,7 +28,8 @@ int main(int argc, char *argv[])
     bla_open_out_t bla_open_out_struct;
     hg_request_t bla_open_request;
 
-    hg_const_string_t bla_open_path = "/scratch/hdf/test.h5";
+    printf("About to start IO using %s", MERCURY_TESTING_SCRATCH_DIRECTORY "/test.h5");
+    hg_const_string_t bla_open_path = MERCURY_TESTING_SCRATCH_DIRECTORY "/test.h5";
     bla_handle_t bla_open_handle;
     int bla_open_ret = 0;
     int bla_open_event_id = 0;
