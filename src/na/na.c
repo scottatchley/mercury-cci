@@ -148,9 +148,6 @@ NA_parse_host_string(const char *host_string,
     size_t na_host_string_len;
     na_return_t ret = NA_SUCCESS;
 
-//    printf("about to parse host string %s\n", host_string);
-    fflush(NULL);
-
     input_string = (char*) malloc(strlen(host_string) + 1);
     if (!input_string) {
         NA_LOG_ERROR("Could not allocate string");
@@ -180,7 +177,6 @@ NA_parse_host_string(const char *host_string,
         }
 
         strcpy(na_buffer->na_class, _locator);
-//        printf("na_class is %s\n",na_buffer->na_class);
     } else {
         na_buffer->na_class = NULL;
     }
@@ -193,7 +189,6 @@ NA_parse_host_string(const char *host_string,
     }
 
     strcpy(na_buffer->na_protocol, token);
-//    printf("na_protocol is %s\n",na_buffer->na_protocol);
 
     token = locator + 2;
     token = strtok_r(token, ":", &locator);
@@ -206,10 +201,8 @@ NA_parse_host_string(const char *host_string,
     }
 
     strcpy(na_buffer->na_host, token);
-//    printf("na_host is %s\n",na_buffer->na_host);
 
     na_buffer->na_port = atoi(locator);
-//    printf("na_port is %d\n",na_buffer->na_port);
 
     na_host_string_len = strlen(na_buffer->na_protocol) + 1;
     na_host_string_len += strlen("://");
@@ -232,7 +225,6 @@ NA_parse_host_string(const char *host_string,
         strcat(na_buffer->na_host_string, ":");
         strcat(na_buffer->na_host_string, locator);
     }
-//    printf("na_host_string is %s\n",na_buffer->na_host_string);
 
 done:
     if (ret != NA_SUCCESS) {
@@ -936,11 +928,10 @@ NA_Trigger(na_context_t *context, unsigned int timeout, unsigned int max_count,
                 goto done;
             }
 
-            printf("waiting on signal %p\n", (void*)&na_private_context->completion_queue_cond);
             /* Otherwise wait timeout ms */
             if (hg_thread_cond_timedwait(
                     &na_private_context->completion_queue_cond,
-                    &na_private_context->completion_queue_mutex, 1) // timeout)
+                    &na_private_context->completion_queue_mutex, timeout)
                     != HG_UTIL_SUCCESS) {
                 /* Timeout occurred so leave */
                 ret = NA_TIMEOUT;
@@ -948,8 +939,6 @@ NA_Trigger(na_context_t *context, unsigned int timeout, unsigned int max_count,
                         &na_private_context->completion_queue_mutex);
                 goto done;
             }
-            printf("finished waiting on signal %p\n", (void*)&na_private_context->completion_queue_cond);
-//            sleep(100000);
         }
 
         /* Completion queue should not be empty now */
