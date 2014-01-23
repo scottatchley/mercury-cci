@@ -68,7 +68,7 @@ static int log4cxx_initialized = 0;
 #endif
 
 const uint16_t BaseTestRdmaPort = 12345;
-
+static int counter = 0;
 #include "cscs_messages.h"
 
 /*
@@ -330,6 +330,9 @@ extern "C" {
 /********************/
 
 /*---------------------------------------------------------------------------*/
+na_return_t poll_cq(na_verbs_private_data *pd, RdmaCompletionChannelPtr channel);
+
+/*---------------------------------------------------------------------------*/
 
 static void
 na_verbs_release(struct na_cb_info *callback_info, void *arg)
@@ -464,22 +467,35 @@ na_verbs_finalize(na_class_t *na_class)
 
   // release al the smart pointers that are holding our objects
   if (pd->server) {
+    // if the connection has not yet been closed
+
     if (pd->controller) {
+      na_return_t val = NA_SUCCESS;
+      while (val==NA_SUCCESS && !pd->controller->isTerminated()) {
+        LOG_DEBUG_MSG("Poll eventmonitor");
+        pd->controller->eventMonitor(0);
+      }
       pd->controller.reset();
     }
   }
   else{
     if (pd->client) {
+      pd->client->disconnect(true);
+      na_return_t val = NA_SUCCESS;
+//      while (val==NA_SUCCESS) {
+//ê        val = poll_cq(pd, pd->completionChannel);
+//      }
+      pd->controller.reset();
       pd->client.reset();
     }
     if (pd->domain) {
       pd->domain.reset();
     }
-    if (pd->completionChannel) {
-      pd->completionChannel.reset();
-    }
     if (pd->completionQ) {
       pd->completionQ.reset();
+    }
+    if (pd->completionChannel) {
+      pd->completionChannel.reset();
     }
   }
 
@@ -743,7 +759,6 @@ static na_return_t na_verbs_msg_send(
   na_verbs_private_data             *pd = NA_VERBS_PRIVATE_DATA(na_class);
   // we must be careful, the registered memory region must not go out of scope
   // until the send completes, so we must store the object outside of this function
-  RdmaMemoryRegionPtr                  region;
   CSCS_user_message::UserRDMA_message *msg;
   RdmaClientPtr                        dest;
 
@@ -891,7 +906,6 @@ static na_return_t na_verbs_msg_recv(
   na_verbs_private_data             *pd = NA_VERBS_PRIVATE_DATA(na_class);
   // we must be careful, the registered memory region must not go out of scope
   // until the send completes, so we must store the object outside of this function
-  RdmaMemoryRegionPtr                  region;
   CSCS_user_message::UserRDMA_message *msg;
   RdmaClientPtr                        dest;
 
@@ -1053,6 +1067,7 @@ na_verbs_mem_handle_create(na_class_t NA_UNUSED *na_class, void *buf,
   //
   *mem_handle = (na_mem_handle_t*)handle;
   LOG_DEBUG_MSG("Mem Handle : address " << handle->address << " length " << handle->bytes << " key " << handle->memkey);
+  ret = na_verbs_mem_register(na_class, *mem_handle);
 
   FUNC_END_DEBUG_MSG
   return ret;
@@ -1066,6 +1081,12 @@ na_verbs_mem_handle_free(na_class_t NA_UNUSED *na_class, na_mem_handle_t mem_han
   na_verbs_memhandle *handle = NA_VERBS_MEM_PTR(mem_handle);
   na_return_t            ret = NA_SUCCESS;
 
+  // take care of any stray registrations
+  if (handle->memregion) {
+    RdmaMemoryRegionPtr *ptr = (RdmaMemoryRegionPtr *)(handle->memregion);
+    delete ptr;
+    handle->memregion = NULL;
+  }
   free(handle);
 
   FUNC_END_DEBUG_MSG
@@ -1088,9 +1109,13 @@ na_verbs_mem_register(na_class_t *na_class, na_mem_handle_t mem_handle)
   else{
     pdp = pd->domain;
   }
+  if (!handle->memregion) {
   handle->memregion = new RdmaMemoryRegionPtr(new RdmaMemoryRegion(pdp, handle->address, handle->bytes));
   handle->memkey    = (*((RdmaMemoryRegionPtr*)(handle->memregion)))->getLocalKey();
   LOG_DEBUG_MSG("Mem Handle : address " << handle->address << " length " << handle->bytes << " key " << handle->memkey);
+  counter++;
+  LOG_DEBUG_MSG("Register counter is " << counter);
+  }
   FUNC_END_DEBUG_MSG
   return ret;
 }
@@ -1107,8 +1132,13 @@ na_verbs_mem_deregister(na_class_t *na_class, na_mem_handle_t mem_handle)
   LOG_DEBUG_MSG("Mem Handle : address " << handle->address << " length " << handle->bytes << " key " << handle->memkey);
   handle->memkey = 0;
   // this should destroy the shared pointer, and the region at the same time
-  RdmaMemoryRegionPtr *ptr = (RdmaMemoryRegionPtr *)(handle->memregion);
-  delete ptr;
+  if (handle->memregion) {
+    RdmaMemoryRegionPtr *ptr = (RdmaMemoryRegionPtr *)(handle->memregion);
+    delete ptr;
+    handle->memregion = NULL;
+    counter--;
+    LOG_DEBUG_MSG("Register counter is " << counter);
+  }
 
   FUNC_END_DEBUG_MSG
   return ret;
@@ -1152,7 +1182,7 @@ na_verbs_mem_handle_deserialize(na_class_t NA_UNUSED *na_class,
   na_verbs_memhandle *handle = (na_verbs_memhandle*)(malloc(sizeof(struct na_verbs_memhandle)));
   memcpy(handle, buf, sizeof(struct na_verbs_memhandle));
   // make sure no object pointer is used, by zeroing it out
-//  handle->memregion = NULL;
+  handle->memregion = NULL;
   LOG_DEBUG_MSG("Mem Handle : address " << handle->address << " length " << handle->bytes << " key " << handle->memkey);
   //
   *mem_handle = (na_mem_handle_t*)handle;
@@ -1313,8 +1343,6 @@ na_verbs_get(
 
 
 /*---------------------------------------------------------------------------*/
-na_return_t poll_cq(na_verbs_private_data *pd, RdmaCompletionChannelPtr channel);
-/*---------------------------------------------------------------------------*/
 static na_return_t na_verbs_progress(na_class_t *na_class,
     na_context_t *context, unsigned int timeout)
 {
@@ -1326,12 +1354,13 @@ static na_return_t na_verbs_progress(na_class_t *na_class,
   if (pd->server)
   {
     // Monitor for events on all of the channels until told to stop.
+    LOG_DEBUG_MSG("Poll eventmonitor");
+    pd->controller->eventMonitor(0);
+
     if (!pd->controller->isTerminated()) {
       LOG_DEBUG_MSG("Poll completion channel");
       ret = poll_cq(pd, pd->controller->GetCompletionChannel());
     }
-    LOG_DEBUG_MSG("Poll eventmonitor");
-    pd->controller->eventMonitor(0);
   }
   else
   {

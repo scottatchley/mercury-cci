@@ -315,6 +315,8 @@ HG_Test_server_init(int argc, char *argv[], char ***addr_table,
             NA_VERBS_Get_rdma_device_address(device, iface, hostname, port_number);
             printf("generated rdma@%s/%s://%s:%d\n", device, iface, hostname, port_number); fflush(NULL);
             sprintf(addr_name, "rdma@%s/%s://%s:%d\n", device, iface, hostname, port_number);
+            printf("Waiting for client...\n");
+            fflush(stdout);
 
             /* Gather addresses */
 

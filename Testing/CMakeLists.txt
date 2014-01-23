@@ -68,10 +68,15 @@ endfunction()
 
 function(add_mercury_test full_test_name server client)
   foreach(comm ${NA_PLUGINS})
+    if (${comm} STREQUAL "verbs")
+      set(test_arg verbs mlx4_0 ib0 10000)
+    else()
+      set(test_arg ${comm})  
+    endif()
     add_test(NAME "${full_test_name}_${comm}"
       COMMAND $<TARGET_FILE:mercury_test_driver>
       --server $<TARGET_FILE:${server}>
-      --client $<TARGET_FILE:${client}> ${comm}
+      --client $<TARGET_FILE:${client}> ${test_arg}
     )
   endforeach()
 endfunction()
