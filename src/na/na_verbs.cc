@@ -298,7 +298,7 @@ static const na_class_t na_verbs_class_g = {
     na_verbs_msg_send_expected,             /* msg_send_expected */
     na_verbs_msg_recv_expected,             /* msg_recv_expected */
     na_verbs_mem_handle_create,             /* mem_handle_create */
-    NULL,                                   /* mem_handle_create_segment */
+    NULL,                                   /* mem_handle_create_segment - This should be supported, but isn't yet implemented here*/
     na_verbs_mem_handle_free,               /* mem_handle_free */
     na_verbs_mem_register,                  /* mem_register */
     na_verbs_mem_deregister,                /* mem_deregister */
@@ -329,19 +329,6 @@ extern "C" {
 /* Plugin callbacks */
 /********************/
 
-static NA_INLINE int
-pointer_equal(void *location1, void *location2)
-{
-  return location1 == location2;
-}
-
-/*---------------------------------------------------------------------------*/
-
-static NA_INLINE unsigned int
-pointer_hash(void *location)
-{
-  return (unsigned int) (unsigned long) location;
-}
 /*---------------------------------------------------------------------------*/
 
 static void
@@ -349,7 +336,6 @@ na_verbs_release(struct na_cb_info *callback_info, void *arg)
 {
   FUNC_START_DEBUG_MSG
   struct na_verbs_op_id *na_verbs_op_id = (struct na_verbs_op_id *) arg;
-  LOG_DEBUG_MSG("in release with buffer from " << na_verbs_op_id->messagebuffer);
   if (na_verbs_op_id && !na_verbs_op_id->completed) {
     NA_LOG_ERROR("Releasing resources from an uncompleted operation");
   }
@@ -361,25 +347,6 @@ na_verbs_release(struct na_cb_info *callback_info, void *arg)
 }
 /*---------------------------------------------------------------------------*/
 
-/*---------------------------------------------------------------------------*/
-static NA_INLINE uint32_t
-na_verbs_gen_rma_tag(na_class_t *na_class)
-{
-  FUNC_START_DEBUG_MSG
-  uint32_t tag;
-
-  /* Compare and swap tag if reached max tag */
-  if (hg_atomic_cas32(&NA_VERBS_PRIVATE_DATA(na_class)->rma_tag,
-      NA_VERBS_MAX_RMA_TAG, NA_VERBS_RMA_TAG)) {
-    tag = NA_VERBS_RMA_TAG;
-  } else {
-    /* Increment tag */
-    tag = hg_atomic_incr32(&NA_VERBS_PRIVATE_DATA(na_class)->rma_tag);
-  }
-
-  FUNC_END_DEBUG_MSG
-  return tag;
-}
 
 /*---------------------------------------------------------------------------*/
 static na_bool_t
@@ -471,7 +438,7 @@ na_verbs_initialize(const struct na_host_buffer *na_buffer, na_bool_t listen)
   }
   else {
     // on the client, we don't do anything for now
-    LOG_ERROR_MSG("Client init - no action for now");
+    LOG_INFO_MSG("Client init - no action for now");
   }
 
   done:
@@ -490,11 +457,36 @@ static na_return_t
 na_verbs_finalize(na_class_t *na_class)
 {
   FUNC_START_DEBUG_MSG
-  na_return_t ret = NA_SUCCESS;
-  int verbs_ret;
+  na_return_t                       ret = NA_SUCCESS;
+  na_verbs_private_data             *pd = NA_VERBS_PRIVATE_DATA(na_class);
+  // we must be careful, the registered memory region must not go out of scope
+  // until the send completes, so we must store the object outside of this function
 
-  printf("na_verbs_finalize\n");
-  fflush(stdout);
+  // release al the smart pointers that are holding our objects
+  if (pd->server) {
+    if (pd->controller) {
+      pd->controller.reset();
+    }
+  }
+  else{
+    if (pd->client) {
+      pd->client.reset();
+    }
+    if (pd->domain) {
+      pd->domain.reset();
+    }
+    if (pd->completionChannel) {
+      pd->completionChannel.reset();
+    }
+    if (pd->completionQ) {
+      pd->completionQ.reset();
+    }
+  }
+
+  // releae other structures
+  delete pd->completionMap;
+  free(na_class->private_data);
+  free(na_class);
 
   FUNC_END_DEBUG_MSG
   return ret;
@@ -639,7 +631,6 @@ na_verbs_addr_lookup(na_class_t NA_UNUSED *na_class, na_context_t *context,
   na_verbs_op_id->arg = arg;
   na_verbs_op_id->completed = NA_FALSE;
 
-  strcpy(na_verbs_op_id->messagebuffer, "Copied during address lookup");
   //
   // Only the client ever connect to the server, so store the na_addr
   // details here. qp_id is zero as we are a client not the server
@@ -666,17 +657,18 @@ na_verbs_addr_free(na_class_t NA_UNUSED *na_class, na_addr_t addr)
   FUNC_START_DEBUG_MSG
   struct na_verbs_addr *na_verbs_addr = (struct na_verbs_addr *) addr;
 
-  throw "verbs free is ot yet implemented, please fix";
-  // wtf?
-
-  na_verbs_addr->client = new RdmaClientPtr();
-  (*na_verbs_addr->client).reset();
-  delete (na_verbs_addr->client);
-
+  if (na_verbs_addr) {
+    if (na_verbs_addr->client) {
+      // remove the client smart pointer reference and trigger the destructor
+      (*na_verbs_addr->client).reset();
+      delete (na_verbs_addr->client);
+    }
+  }
+  //
   na_return_t ret = NA_SUCCESS;
   FUNC_END_DEBUG_MSG
   return ret;
-}
+  }
 
 /*---------------------------------------------------------------------------*/
 static na_return_t
@@ -769,7 +761,6 @@ static na_return_t na_verbs_msg_send(
   na_verbs_op_id->completed                  = NA_FALSE;
   na_verbs_op_id->info.send.wr_id            = 0;
   na_verbs_op_id->info.send.rdmaMemRegionPtr = 0;
-  strcpy(na_verbs_op_id->messagebuffer, "Copied during na_verbs_msg_send");
 
   // In future versions we will ....
   // expected or unexpected, wrap unexpected messages in a standard bgcios type message header,
@@ -921,7 +912,6 @@ static na_return_t na_verbs_msg_recv(
   na_verbs_op_id->info.recv.buf_size    = buf_size;
   na_verbs_op_id->info.recv.buf         = (void*)buf;
   na_verbs_op_id->info.recv.tag         = tag;
- strcpy(na_verbs_op_id->messagebuffer, "Copied during na_verbs_msg_recv");
 
   if (na_verbs_addr) {
     LOG_DEBUG_MSG("Receive has na_addr qp:" << na_verbs_addr->qp_id);
@@ -1055,14 +1045,14 @@ na_verbs_mem_handle_create(na_class_t NA_UNUSED *na_class, void *buf,
   FUNC_START_DEBUG_MSG
   na_return_t ret = NA_SUCCESS;
   //
-  na_verbs_memhandle *handle = (na_verbs_memhandle*)(calloc(1, sizeof(na_verbs_memhandle)));
+  na_verbs_memhandle *handle = (na_verbs_memhandle*)(calloc(1, sizeof(struct na_verbs_memhandle)));
   handle->address   = buf;
   handle->bytes     = buf_size;
   handle->memkey    = 0;
   handle->memregion = NULL;
   //
   *mem_handle = (na_mem_handle_t*)handle;
-  LOG_DEBUG_MSG("Creating buf " << handle << " " << sizeof(na_verbs_memhandle) << " from " << handle->address << " length " << handle->bytes );
+  LOG_DEBUG_MSG("Mem Handle : address " << handle->address << " length " << handle->bytes << " key " << handle->memkey);
 
   FUNC_END_DEBUG_MSG
   return ret;
@@ -1133,7 +1123,7 @@ na_verbs_mem_handle_get_serialize_size(na_class_t NA_UNUSED *na_class,
   FUNC_START_DEBUG_MSG
   LOG_DEBUG_MSG("Mem Handle : address " << handle->address << " length " << handle->bytes << " key " << handle->memkey);
   FUNC_END_DEBUG_MSG
-  return sizeof(na_verbs_memhandle);
+  return sizeof(struct na_verbs_memhandle);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1144,11 +1134,9 @@ na_verbs_mem_handle_serialize(na_class_t NA_UNUSED *na_class, void *buf,
   FUNC_START_DEBUG_MSG
   na_verbs_memhandle *handle = NA_VERBS_MEM_PTR(mem_handle);
   na_return_t            ret = NA_SUCCESS;
-  memcpy(buf, handle, sizeof(na_verbs_memhandle));
-  memset(buf, 0, sizeof(na_verbs_memhandle));
+  memcpy(buf, handle, sizeof(struct na_verbs_memhandle));
   LOG_DEBUG_MSG("Mem Handle : address " << handle->address << " length " << handle->bytes << " key " << handle->memkey);
   // make sure no object pointer is sent, by zeroing it out
-//  NA_VERBS_MEM_PTR(buf)->memregion = NULL;
   FUNC_END_DEBUG_MSG
   return ret;
 }
@@ -1161,14 +1149,13 @@ na_verbs_mem_handle_deserialize(na_class_t NA_UNUSED *na_class,
   FUNC_START_DEBUG_MSG
   na_return_t ret = NA_SUCCESS;
   //
-  na_verbs_memhandle *handle = (na_verbs_memhandle*)(malloc(sizeof(na_verbs_memhandle)));
-  memcpy(handle, buf, sizeof(na_verbs_mem_handle));
+  na_verbs_memhandle *handle = (na_verbs_memhandle*)(malloc(sizeof(struct na_verbs_memhandle)));
+  memcpy(handle, buf, sizeof(struct na_verbs_memhandle));
   // make sure no object pointer is used, by zeroing it out
 //  handle->memregion = NULL;
   LOG_DEBUG_MSG("Mem Handle : address " << handle->address << " length " << handle->bytes << " key " << handle->memkey);
   //
   *mem_handle = (na_mem_handle_t*)handle;
-  LOG_DEBUG_MSG("Creating buf " << handle << " from " << handle->address << " length " << handle->bytes );
 
   FUNC_END_DEBUG_MSG
   return ret;
@@ -1339,13 +1326,12 @@ static na_return_t na_verbs_progress(na_class_t *na_class,
   if (pd->server)
   {
     // Monitor for events on all of the channels until told to stop.
-    //    while (!pd->controller->isTerminated())
-    //    {
+    if (!pd->controller->isTerminated()) {
+      LOG_DEBUG_MSG("Poll completion channel");
+      ret = poll_cq(pd, pd->controller->GetCompletionChannel());
+    }
     LOG_DEBUG_MSG("Poll eventmonitor");
     pd->controller->eventMonitor(0);
-    LOG_DEBUG_MSG("Poll completion channel");
-    ret = poll_cq(pd, pd->controller->GetCompletionChannel());
-    //    }
   }
   else
   {
@@ -1419,12 +1405,12 @@ na_verbs_complete(struct na_verbs_op_id *na_verbs_op_id)
       break;
     case NA_CB_PUT:
       /* Transfer is now done so free RMA info */
-      free(na_verbs_op_id->info.put.rma_info);
+//      free(na_verbs_op_id->info.put.rma_info);
       na_verbs_op_id->info.put.rma_info = NULL;
       break;
     case NA_CB_GET:
       /* Transfer is now done so free RMA info */
-      free(na_verbs_op_id->info.get.rma_info);
+//      free(na_verbs_op_id->info.get.rma_info);
       na_verbs_op_id->info.get.rma_info = NULL;
       break;
     default:
@@ -1466,16 +1452,6 @@ na_verbs_cancel(na_class_t NA_UNUSED *na_class, na_context_t *context,
   return ret;
 }
 /*---------------------------------------------------------------------------*/
-/*
-// the client uses these
-RdmaClientPtr            client;
-RdmaProtectionDomainPtr  domain;
-RdmaCompletionChannelPtr completionChannel;
-RdmaCompletionQueuePtr   completionQ;
-
-//
-OperationMap *completionMap;
- */
 
 /*---------------------------------------------------------------------------*/
 na_return_t on_completion(na_verbs_private_data *pd, uint64_t wr_id)
@@ -1562,7 +1538,7 @@ na_return_t poll_cq(na_verbs_private_data *pd, RdmaCompletionChannelPtr channel)
         {
           case CSCS_user_message::UnexpectedMessage:
           case CSCS_user_message::ExpectedMessage:
-            LOG_DEBUG_MSG("received " << (msghdr->type) << "  received from client " << bgcios::printHeader(*msghdr).c_str());
+//            LOG_DEBUG_MSG("received " << (msghdr->type) << "  received from client " << bgcios::printHeader(*msghdr).c_str());
             //
             if (pd->completionMap->find(completion.wr_id)!=pd->completionMap->end()) {
               LOG_DEBUG_MSG("Found the work request ID in the completion map " << completion.wr_id << " Entries " << pd->completionMap->size());

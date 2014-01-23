@@ -149,7 +149,6 @@ struct na_verbs_op_id {
   na_bool_t     completed;
   uint64_t      wr_id;
   struct na_verbs_addr *verbs_addr;
-  char          messagebuffer[64];
   union {
     struct na_verbs_info_send send;
     struct na_verbs_info_recv recv;
