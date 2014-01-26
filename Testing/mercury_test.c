@@ -312,7 +312,7 @@ HG_Test_server_init(int argc, char *argv[], char ***addr_table,
              *   tcp@ssm://localhost:3344
              */
             gethostname(hostname, HG_TEST_MAX_ADDR_NAME);
-            NA_VERBS_Get_rdma_device_address(device, iface, hostname, port_number);
+            NA_VERBS_Get_rdma_device_address(device, iface, hostname);
             printf("generated rdma@%s/%s://%s:%d\n", device, iface, hostname, port_number); fflush(NULL);
             sprintf(addr_name, "rdma@%s/%s://%s:%d\n", device, iface, hostname, port_number);
             printf("Waiting for client...\n");

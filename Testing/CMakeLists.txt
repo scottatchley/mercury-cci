@@ -69,24 +69,29 @@ endfunction()
 function(add_mercury_test full_test_name server client)
   foreach(comm ${NA_PLUGINS})
     if (${comm} STREQUAL "verbs")
-      set(test_arg verbs mlx4_0 ib0 10000)
+      set(xargs verbs mlx4_0 ib0 10000)
     else()
-      set(test_arg ${comm})  
+      set(xargs ${comm})  
     endif()
     add_test(NAME "${full_test_name}_${comm}"
       COMMAND $<TARGET_FILE:mercury_test_driver>
       --server $<TARGET_FILE:${server}>
-      --client $<TARGET_FILE:${client}> ${test_arg}
+      --client $<TARGET_FILE:${client}> ${xargs}
     )
   endforeach()
 endfunction()
 
 function(add_mercury_opt_test full_test_name server client opt)
   foreach(comm ${NA_PLUGINS})
+    if (${comm} STREQUAL "verbs")
+      set(xargs verbs mlx4_0 ib0 10000 ${opt})
+    else()
+      set(xargs ${comm} ${opt})  
+    endif()
     add_test(NAME "${full_test_name}_${opt}_${comm}"
       COMMAND $<TARGET_FILE:mercury_test_driver>
       --server $<TARGET_FILE:${server}>
-      --client $<TARGET_FILE:${client}> ${comm} ${opt}
+      --client $<TARGET_FILE:${client}> ${xargs}
     )
   endforeach()
 endfunction()

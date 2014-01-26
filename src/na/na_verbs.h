@@ -47,7 +47,7 @@
 #endif
 
 #define NA_VERBS_UNEXPECTED_SIZE CSCS_UserMessageDataSize
-#define NA_VERBS_EXPECTED_SIZE   1024*1024*1024
+#define NA_VERBS_EXPECTED_SIZE   CSCS_UserMessageDataSize
 
 /* Max tag */
 #define NA_VERBS_MAX_TAG (NA_TAG_UB >> 2)
@@ -63,7 +63,7 @@
 // simple function which the server uses to
 // write out the correct RDMA capable IP address
 // it may not be the same as the standard IP address
-void NA_VERBS_Get_rdma_device_address(const char *devicename, const char *iface, char *device, int port_number);
+void NA_VERBS_Get_rdma_device_address(const char *devicename, const char *iface, char *hostname);
 
 struct na_verbs_addr;
 
