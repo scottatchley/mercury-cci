@@ -94,6 +94,15 @@ if(NA_USE_VERBS)
       ${NA_EXT_INCLUDE_DEPENDENCIES}
       ${BGC_INCLUDE_DIR}
     )
+
+    set(VERBS_DEVICE_NAME "roq" CACHE STRING "Infiniband device name to use")
+    set(VERBS_INTERFACE_NAME "roq0" CACHE STRING "Infiniband interface name to use")
+    set(VERBS_PORT_NUMBER "10000" CACHE STRING "Infiniband port number to use")  
+    
+    if (${VERBS_DEVICE_NAME} MATCHES "bgvrnic")
+      ADD_DEFINITIONS(-DBGQ_BGVRNIC)
+    endif()
+    
   else()
     message("Fatal : Could not find RDMA.")
   endif()
