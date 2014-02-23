@@ -606,7 +606,7 @@ na_verbs_addr_lookup(na_class_t NA_UNUSED *na_class, na_context_t *context,
   }
   catch (bgcios::RdmaError& e) {
     LOG_ERROR_MSG("(client) error creating RDMA connection: " << e.what());
-    return NA_FAIL;
+    return NA_PROTOCOL_ERROR;
   }
   LOG_DEBUG_MSG("(client) calling connect ");
 
@@ -616,7 +616,7 @@ na_verbs_addr_lookup(na_class_t NA_UNUSED *na_class, na_context_t *context,
   }
   catch (bgcios::RdmaError& e) {
     LOG_ERROR_MSG("error constructing protection domain: " << e.what());
-    return NA_FAIL;
+    return NA_PROTOCOL_ERROR;
   }
   LOG_DEBUG_MSG("(client) created completion protectiondomain");
   try {
@@ -625,7 +625,7 @@ na_verbs_addr_lookup(na_class_t NA_UNUSED *na_class, na_context_t *context,
   }
   catch (bgcios::RdmaError& e) {
     LOG_ERROR_MSG("error constructing completion channel: " << e.what());
-    return NA_FAIL;
+    return NA_PROTOCOL_ERROR;
   }
   LOG_DEBUG_MSG("(client) created completion channel using fd " << pd->completionChannel->getChannelFd());
 
@@ -1539,7 +1539,7 @@ na_return_t on_completion_wr(na_verbs_private_data *pd, uint64_t wr_id, bool all
   }
   else {
     LOG_ERROR_MSG("Could not locate work request in WR completion map " << wr_id);
-    ret = NA_FAIL;
+    ret = NA_PROTOCOL_ERROR;
   }
 
   FUNC_END_DEBUG_MSG
@@ -1560,7 +1560,7 @@ na_return_t on_completion_tag(na_verbs_private_data *pd, uint64_t wr_id, bool al
   }
   else {
     LOG_ERROR_MSG("Could not locate work request in Tag completion map " << wr_id);
-    ret = NA_FAIL;
+    ret = NA_PROTOCOL_ERROR;
   }
 
   FUNC_END_DEBUG_MSG
@@ -1597,7 +1597,7 @@ na_return_t poll_cq_non_blocking(na_verbs_private_data *pd, RdmaCompletionChanne
       return NA_SUCCESS;
     }
     LOG_ERROR_MSG("error polling socket descriptors: " << bgcios::errorString(err));
-    return NA_FAIL;
+    return NA_PROTOCOL_ERROR;
   }
 
   // Check for an event on the completion channel.
@@ -1643,7 +1643,7 @@ na_return_t poll_cq(na_verbs_private_data *pd, RdmaCompletionChannelPtr channel,
     {
       LOG_ERROR_MSG("failed work completion, status '" << ibv_wc_status_str(completion.status) << "' for operation "
           << RdmaCompletionQueue::wc_opcode_str(completion.opcode) <<  completion.opcode );
-      return NA_FAIL;
+      return NA_PROTOCOL_ERROR;
     }
 
     switch (completion.opcode)
@@ -1761,7 +1761,7 @@ na_return_t poll_cq(na_verbs_private_data *pd, RdmaCompletionChannelPtr channel,
 
 
   FUNC_END_DEBUG_MSG
-  return completions ? NA_SUCCESS : NA_FAIL;
+  return completions ? NA_SUCCESS : NA_PROTOCOL_ERROR;
 }
 /*---------------------------------------------------------------------------*/
 /*---------------------------------------------------------------------------*/
