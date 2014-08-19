@@ -138,6 +138,35 @@ if(NA_USE_MPI)
   endif()
 endif()
 
+# VERBS
+option(NA_USE_VERBS "Use IB VERBS." OFF)
+if(NA_USE_VERBS)
+  find_package(IB_VERBS REQUIRED)
+  find_package(RDMA_CM REQUIRED)
+  if(IB_VERBS_FOUND)
+    message(STATUS "IB VERBS include directory: ${IB_VERBS_INCLUDE_DIR}")
+    if(RDMA_CM_FOUND)
+      set(NA_PLUGINS ${NA_PLUGINS} verbs)
+      set(NA_HAS_VERBS 1)
+      include_directories(${IB_VERBS_INCLUDE_DIRS} ${RDMA_CM_INCLUDE_DIRS})
+      set(NA_EXT_LIB_DEPENDENCIES
+        ${NA_EXT_LIB_DEPENDENCIES}
+        ${IB_VERBS_LIBRARIES}
+        ${RDMA_CM_LIBRARIES}
+      )
+      set(NA_EXT_INCLUDE_DEPENDENCIES
+        ${NA_EXT_INCLUDE_DEPENDENCIES}
+        ${IB_VERBS_INCLUDE_DIRS}
+        ${RDMA_CM_INCLUDE_DIRS}
+      )
+    else()
+      message(FATAL_ERROR "Could not find RDMA CM.")
+    endif()
+  else()
+    message(FATAL_ERROR "Could not find IB Verbs.")
+  endif()
+endif()
+
 #------------------------------------------------------------------------------
 # Configure module header files
 #------------------------------------------------------------------------------
@@ -186,6 +215,13 @@ if(NA_USE_MPI)
   set(NA_SRCS
     ${NA_SRCS}
     ${CMAKE_CURRENT_SOURCE_DIR}/na_mpi.c
+  )
+endif()
+
+if(NA_USE_VERBS)
+  set(NA_SRCS
+    ${NA_SRCS}
+#    ${CMAKE_CURRENT_SOURCE_DIR}/na_verbs.c
   )
 endif()
 
