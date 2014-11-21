@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Argonne National Laboratory, Department of Energy,
+ * Copyright (C) 2013-2014 Argonne National Laboratory, Department of Energy,
  *                    UChicago Argonne, LLC and The HDF Group.
  * All rights reserved.
  *
@@ -103,7 +103,7 @@ struct hg_handle {
 
     na_op_id_t na_send_op_id;           /* Operation ID for send */
     na_op_id_t na_recv_op_id;           /* Operation ID for recv */
-    hg_atomic_int32_t completed_count;  /* Number of operations completed */
+    hg_atomic_int32_t na_completed_count; /* Number of NA operations completed */
 
     hg_atomic_int32_t ref_count;        /* Reference count */
 
@@ -668,7 +668,7 @@ hg_create(hg_class_t *hg_class, hg_context_t *context)
 
     hg_handle->na_send_op_id = NA_OP_ID_NULL;
     hg_handle->na_recv_op_id = NA_OP_ID_NULL;
-    hg_atomic_set32(&hg_handle->completed_count, 0);
+    hg_atomic_set32(&hg_handle->na_completed_count, 0);
 
     hg_atomic_set32(&hg_handle->ref_count, 1);
 
@@ -723,9 +723,9 @@ hg_send_input_cb(const struct na_cb_info *callback_info)
 
     /* Add handle to completion queue only when send_input and recv_output have
      * completed */
-    if ((unsigned int) hg_atomic_incr32(&hg_handle->completed_count) == 2) {
+    if (hg_atomic_incr32(&hg_handle->na_completed_count) == 2) {
         /* Reset completed count */
-        hg_atomic_set32(&hg_handle->completed_count, 0);
+        hg_atomic_set32(&hg_handle->na_completed_count, 0);
 
         /* Mark as completed */
         if (hg_complete(hg_handle) != HG_SUCCESS) {
@@ -749,6 +749,9 @@ hg_recv_input_cb(const struct na_cb_info *callback_info)
     if (callback_info->ret != NA_SUCCESS) {
         goto done;
     }
+
+    /* Increment NA completed count */
+    hg_atomic_incr32(&hg_handle->na_completed_count);
 
     /* Fill unexpected info */
     hg_handle->hg_info.addr = callback_info->info.recv_unexpected.source;
@@ -822,10 +825,15 @@ hg_send_output_cb(const struct na_cb_info *callback_info)
         goto done;
     }
 
-    /* Mark as completed */
-    if (hg_complete(hg_handle) != HG_SUCCESS) {
-        HG_LOG_ERROR("Could not complete operation");
-        goto done;
+    /* Mark as completed (sanity check: NA completed count should be 2 here) */
+    if (hg_atomic_incr32(&hg_handle->na_completed_count) == 2) {
+        /* Reset completed count */
+        hg_atomic_set32(&hg_handle->na_completed_count, 0);
+
+        if (hg_complete(hg_handle) != HG_SUCCESS) {
+            HG_LOG_ERROR("Could not complete operation");
+            goto done;
+        }
     }
 
 done:
@@ -860,9 +868,9 @@ hg_recv_output_cb(const struct na_cb_info *callback_info)
 
     /* Add handle to completion queue only when send_input and recv_output have
      * completed */
-    if ((unsigned int) hg_atomic_incr32(&hg_handle->completed_count) == 2) {
+    if (hg_atomic_incr32(&hg_handle->na_completed_count) == 2) {
         /* Reset completed count */
-        hg_atomic_set32(&hg_handle->completed_count, 0);
+        hg_atomic_set32(&hg_handle->na_completed_count, 0);
 
         /* Mark as completed */
         if (hg_complete(hg_handle) != HG_SUCCESS) {
@@ -1095,17 +1103,36 @@ done:
 static hg_return_t
 hg_cancel(struct hg_handle *hg_handle)
 {
+    struct hg_class *hg_class = hg_handle->hg_info.hg_class;
     hg_return_t ret = HG_SUCCESS;
 
-    /* TODO must cancel all NA operations issued */
-    /*
-if (HG_UTIL_TRUE != hg_atomic_cas32(&hg_handle->completed, HG_TRUE, HG_TRUE)) {
-    NA_Cancel(hg_bulk_op_id->context->hg_bulk_class->na_class,
-            hg_bulk_op_id->context->hg_bulk_class->na_context,
-            NA_OP_ID_NULL);
-}
-     */
+    /* Cancel all NA operations issued */
+    if (hg_handle->na_recv_op_id != NA_OP_ID_NULL) {
+        na_return_t na_ret;
 
+        na_ret = NA_Cancel(hg_class->na_class, hg_class->na_context,
+                hg_handle->na_recv_op_id);
+        if (na_ret != NA_SUCCESS) {
+            HG_LOG_ERROR("Could not cancel recv op id");
+            ret = HG_NA_ERROR;
+            goto done;
+        }
+    }
+    if (hg_handle->na_send_op_id != NA_OP_ID_NULL) {
+        na_return_t na_ret;
+
+        na_ret = NA_Cancel(hg_class->na_class, hg_class->na_context,
+                hg_handle->na_send_op_id);
+        if (na_ret != NA_SUCCESS) {
+            HG_LOG_ERROR("Could not cancel send op id");
+            ret = HG_NA_ERROR;
+            goto done;
+        }
+    }
+    /* Free op */
+    hg_destroy(hg_handle);
+
+done:
     return ret;
 }
 

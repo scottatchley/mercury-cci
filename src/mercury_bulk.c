@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Argonne National Laboratory, Department of Energy,
+ * Copyright (C) 2013-2014 Argonne National Laboratory, Department of Energy,
  *                    UChicago Argonne, LLC and The HDF Group.
  * All rights reserved.
  *
@@ -412,7 +412,7 @@ hg_bulk_free(struct hg_bulk *hg_bulk)
         goto done;
     }
 
-    if (!hg_bulk->segment_handles) {
+    if (hg_bulk->segment_handles) {
         /* Unregister/free NA memory handles */
         if (hg_bulk->segment_published) {
             for (i = 0; i < hg_bulk->segment_count; i++) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Argonne National Laboratory, Department of Energy,
+ * Copyright (C) 2013-2014 Argonne National Laboratory, Department of Energy,
  *                    UChicago Argonne, LLC and The HDF Group.
  * All rights reserved.
  *
@@ -12,7 +12,6 @@
 #include "na_private.h"
 #include "na_error.h"
 
-#include "mercury_hash_table.h"
 #include "mercury_list.h"
 #include "mercury_queue.h"
 #include "mercury_thread.h"
@@ -601,13 +600,6 @@ static NA_INLINE int
 pointer_equal(void *location1, void *location2)
 {
     return location1 == location2;
-}
-
-/*---------------------------------------------------------------------------*/
-static NA_INLINE unsigned int
-pointer_hash(void *location)
-{
-    return (unsigned int) (unsigned long) location;
 }
 
 /*---------------------------------------------------------------------------*/
@@ -2584,19 +2576,72 @@ na_mpi_release(struct na_cb_info *callback_info, void *arg)
 
 /*---------------------------------------------------------------------------*/
 static na_return_t
-na_mpi_cancel(na_class_t NA_UNUSED *na_class, na_context_t NA_UNUSED *context,
+na_mpi_cancel(na_class_t *na_class, na_context_t NA_UNUSED *context,
         na_op_id_t op_id)
 {
     struct na_mpi_op_id *na_mpi_op_id = (struct na_mpi_op_id *) op_id;
     na_return_t ret = NA_SUCCESS;
+    int mpi_ret;
 
-    /* TODO */
-    if (na_mpi_op_id->completed) {
+    /* TODO make this atomic */
+    if (na_mpi_op_id->completed) goto done;
 
+    switch (na_mpi_op_id->type) {
+        case NA_CB_LOOKUP:
+            /* Nothing for now */
+            break;
+        case NA_CB_SEND_UNEXPECTED:
+            mpi_ret = MPI_Cancel(&na_mpi_op_id->info.send_unexpected.data_request);
+            if (mpi_ret != MPI_SUCCESS) {
+                NA_LOG_ERROR("MPI_Cancel() failed");
+                ret = NA_PROTOCOL_ERROR;
+                goto done;
+            }
+            break;
+        case NA_CB_RECV_UNEXPECTED:
+        {
+            struct na_mpi_op_id *na_mpi_pop_op_id = NULL;
+
+            /* Must remove op_id from unexpected op_id queue */
+            while (na_mpi_pop_op_id != na_mpi_op_id) {
+                na_mpi_pop_op_id = na_mpi_msg_unexpected_op_pop(na_class);
+
+                /* Push back unexpected op_id to queue if it does not match */
+                if (na_mpi_pop_op_id != na_mpi_op_id) {
+                    na_mpi_msg_unexpected_op_push(na_class, na_mpi_pop_op_id);
+                }
+            }
+        }
+            break;
+        case NA_CB_SEND_EXPECTED:
+            mpi_ret = MPI_Cancel(&na_mpi_op_id->info.send_expected.data_request);
+            if (mpi_ret != MPI_SUCCESS) {
+                NA_LOG_ERROR("MPI_Cancel() failed");
+                ret = NA_PROTOCOL_ERROR;
+                goto done;
+            }
+            break;
+        case NA_CB_RECV_EXPECTED:
+            mpi_ret = MPI_Cancel(&na_mpi_op_id->info.recv_expected.data_request);
+            if (mpi_ret != MPI_SUCCESS) {
+                NA_LOG_ERROR("MPI_Cancel() failed");
+                ret = NA_PROTOCOL_ERROR;
+                goto done;
+            }
+            break;
+        case NA_CB_PUT:
+            /* TODO */
+            break;
+        case NA_CB_GET:
+            /* TODO */
+            break;
+        default:
+            NA_LOG_ERROR("Operation not supported");
+            ret = NA_INVALID_PARAM;
+            break;
     }
-    /*
-    MPI_Cancel(na_mpi_op_id->)
-    */
+    free(na_mpi_op_id);
 
+done:
     return ret;
 }
